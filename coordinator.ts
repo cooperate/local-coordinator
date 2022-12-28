@@ -5,6 +5,9 @@ import net from "net";
 import crypto from "crypto";
 import express from "express";
 import cors from "cors";
+import { ethers } from 'ethers';
+import { JsonRpcSigner } from '@ethersproject/providers';
+import { SiweMessage } from 'siwe';
 import { uniqueNamesGenerator, adjectives, colors, animals } from "unique-names-generator";
 import { WebSocketServer, WebSocket } from "ws";
 import { StoreClient } from "./store-client.js";
@@ -44,6 +47,42 @@ app.post("/:appId/login/nickname", (req, res) => {
   const token = `e30.${Buffer.from(JSON.stringify(user)).toString("base64")}`;
   res.json({ token });
 });
+app.post("/:appId/login/siwe", async (req: any, res) => {
+  const { message, signature } : { message: string, signature: string } = req.body;
+  const id = Math.random().toString(36).substring(2);
+  let siweMessage = new SiweMessage(message);
+  const fields = await siweMessage.validate(signature);
+  if (fields.nonce !== req.session.nonce) {
+      console.log(req.session);
+      res.status(422).json({
+          message: `Invalid nonce.`,
+      });
+      return;
+  }
+  const user = { type: "siwe", id, name: ''/*not sure what we'd use here, i would lean towards public address*/ };
+  const token = `e30.${Buffer.from(JSON.stringify(user)).toString("base64")}`;
+  res.json({ token });
+});
+
+function createSiweMessage(address: string, statement: string) {
+  const message = new SiweMessage({
+      domain: 'localhost',
+      address,
+      statement,
+      uri: 'localhost',
+      version: '1',
+      chainId: 1
+  });
+  return message.prepareMessage();
+}
+
+async function signInWithEthereum(signer: JsonRpcSigner): Promise<string> {
+  const message = createSiweMessage(
+      await signer.getAddress(),
+      'Sign in with Ethereum to the app.'
+  );
+  return await signer.signMessage(message);
+}
 app.post("/:appId/create", (req, res) => {
   const token = req.headers.authorization;
   if (token === undefined) {
